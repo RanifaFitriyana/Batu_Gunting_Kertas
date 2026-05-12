@@ -37,7 +37,8 @@ dependencies:
   tflite_flutter: ^0.12.1
   image_picker: ^1.2.2
   image: ^4.8.0
-  camera: ^0.12.0+1
+  camera: ^0.11.0+2
+  
 
 dev_dependencies:
   flutter_test:
@@ -56,7 +57,7 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   assets:
-      - assets/ml/model_unquant.tflite
+      - assets/ml/model.tflite
       - assets/ml/labels.txt
 
   # The following line ensures that the Material Icons font is

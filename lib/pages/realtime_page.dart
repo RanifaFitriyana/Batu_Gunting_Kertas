@@ -16,12 +16,14 @@ class _RealtimePageState
 
   CameraController? _cameraController;
 
-  final ClassifierService _classifier =
+  final _classifier =
       ClassifierService();
 
   bool _isProcessing = false;
 
   Map<String, double>? _results;
+
+  String _status = "Memuat kamera...";
 
   @override
   void initState() {
@@ -32,51 +34,103 @@ class _RealtimePageState
 
   Future<void> _initialize() async {
 
-    await _classifier.loadModel();
+    try {
 
-    final cameras = await availableCameras();
+      await _classifier.loadModel();
 
-    _cameraController = CameraController(
-      cameras[0],
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
+      final cameras =
+          await availableCameras();
 
-    await _cameraController!.initialize();
+      // Pakai kamera belakang
+      final backCamera = cameras.firstWhere(
+        (camera) =>
+            camera.lensDirection ==
+            CameraLensDirection.back,
+      );
 
-    await _cameraController!.startImageStream(
-      (CameraImage image) async {
+      _cameraController = CameraController(
+        backCamera,
 
-        if (_isProcessing) return;
+        // HIGH untuk hasil lebih jelas
+        ResolutionPreset.high,
 
-        _isProcessing = true;
+        enableAudio: false,
 
-        try {
+        imageFormatGroup:
+            ImageFormatGroup.yuv420,
+      );
 
-          final result =
-              await _classifier
-                  .classifyCameraImage(
-            image,
-          );
+      await _cameraController!
+          .initialize();
 
-          if (mounted) {
+      setState(() {
+        _status =
+            "Arahkan kamera ke objek";
+      });
+
+      await _cameraController!
+          .startImageStream(
+
+        (CameraImage image) async {
+
+          // Hindari proses bertumpuk
+          if (_isProcessing) return;
+
+          // Pastikan model siap
+          if (!_classifier.isReady) return;
+
+          _isProcessing = true;
+
+          try {
+
+            final result =
+                await _classifier
+                    .classifyCameraImage(
+              image,
+            );
+
+            if (mounted) {
+
+              setState(() {
+
+                _results = result;
+
+                _status =
+                    "Deteksi berhasil";
+              });
+            }
+
+          } catch (e) {
+
             setState(() {
-              _results = result;
+              _status =
+                  "Error deteksi";
             });
+
+            debugPrint(
+              "Realtime Error: $e",
+            );
+
+          } finally {
+
+            _isProcessing = false;
           }
+        },
+      );
 
-        } catch (e) {
+      setState(() {});
 
-          print(e);
+    } catch (e) {
 
-        } finally {
+      setState(() {
+        _status =
+            "Gagal membuka kamera";
+      });
 
-          _isProcessing = false;
-        }
-      },
-    );
-
-    setState(() {});
+      debugPrint(
+        "Init Error: $e",
+      );
+    }
   }
 
   @override
@@ -85,19 +139,17 @@ class _RealtimePageState
     return Scaffold(
 
       appBar: AppBar(
+
         centerTitle: true,
 
         title: const Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize:
+              MainAxisSize.min,
 
           children: [
 
             Text(
               "Realtime Classifier",
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
             ),
 
             SizedBox(height: 2),
@@ -113,21 +165,75 @@ class _RealtimePageState
       ),
 
       body: _cameraController == null
-          ? const Center(
-              child:
-                  CircularProgressIndicator(),
+
+          ? Center(
+              child: Column(
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
+
+                children: [
+
+                  const CircularProgressIndicator(),
+
+                  const SizedBox(
+                    height: 16,
+                  ),
+
+                  Text(_status),
+                ],
+              ),
             )
+
           : Stack(
 
               children: [
 
                 SizedBox.expand(
+
                   child: CameraPreview(
                     _cameraController!,
                   ),
                 ),
 
+                // INFO STATUS
                 Positioned(
+
+                  top: 20,
+                  left: 20,
+                  right: 20,
+
+                  child: Card(
+
+                    color: Colors.black87,
+
+                    child: Padding(
+
+                      padding:
+                          const EdgeInsets.all(
+                        12,
+                      ),
+
+                      child: Text(
+
+                        _status,
+
+                        textAlign:
+                            TextAlign.center,
+
+                        style:
+                            const TextStyle(
+                          color:
+                              Colors.white,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // HASIL DETEKSI
+                Positioned(
+
                   bottom: 30,
                   left: 20,
                   right: 20,
@@ -137,10 +243,14 @@ class _RealtimePageState
                     color: Colors.black87,
 
                     child: Padding(
+
                       padding:
-                          const EdgeInsets.all(16),
+                          const EdgeInsets.all(
+                        16,
+                      ),
 
                       child: Column(
+
                         mainAxisSize:
                             MainAxisSize.min,
 
@@ -150,14 +260,14 @@ class _RealtimePageState
                                 ? [
 
                                     const Text(
+
                                       "Belum ada hasil",
+
                                       style:
                                           TextStyle(
                                         color:
                                             Colors
                                                 .white,
-                                        fontSize:
-                                            16,
                                       ),
                                     ),
                                   ]
@@ -167,40 +277,71 @@ class _RealtimePageState
                                     .map(
 
                                       (e) => Padding(
+
                                         padding:
                                             const EdgeInsets.symmetric(
                                           vertical:
                                               6,
                                         ),
 
-                                        child: Row(
+                                        child: Column(
 
                                           children: [
 
-                                            Expanded(
-                                              child:
-                                                  Text(
-                                                e.key,
-                                                style:
-                                                    const TextStyle(
-                                                  color:
-                                                      Colors.white,
-                                                  fontSize:
-                                                      18,
-                                                  fontWeight:
-                                                      FontWeight.bold,
+                                            Row(
+
+                                              children: [
+
+                                                Expanded(
+
+                                                  child:
+                                                      Text(
+
+                                                    e.key,
+
+                                                    style:
+                                                        const TextStyle(
+                                                      color:
+                                                          Colors.white,
+                                                      fontSize:
+                                                          18,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
+
+                                                Text(
+
+                                                  "${(e.value * 100).toStringAsFixed(1)}%",
+
+                                                  style:
+                                                      const TextStyle(
+                                                    color:
+                                                        Colors.white,
+                                                    fontSize:
+                                                        16,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
 
-                                            Text(
-                                              "${(e.value * 100).toStringAsFixed(1)}%",
-                                              style:
-                                                  const TextStyle(
-                                                color:
-                                                    Colors.white,
-                                                fontSize:
-                                                    16,
+                                            const SizedBox(
+                                              height:
+                                                  6,
+                                            ),
+
+                                            LinearProgressIndicator(
+
+                                              value:
+                                                  e.value,
+
+                                              minHeight:
+                                                  10,
+
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                10,
                                               ),
                                             ),
                                           ],

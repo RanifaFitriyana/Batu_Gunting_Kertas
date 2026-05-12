@@ -8,6 +8,7 @@ import 'package:tflite_flutter/tflite_flutter.dart';
 
 class ClassifierService {
   Interpreter? _interpreter;
+
   List<String>? _labels;
 
   static const int inputSize = 224;
@@ -17,17 +18,25 @@ class ClassifierService {
 
   Future<void> loadModel() async {
 
+    final options = InterpreterOptions()
+      ..threads = 4;
+
     _interpreter = await Interpreter.fromAsset(
-      'assets/ml/model_unquant.tflite',
+      'assets/ml/model.tflite',
+      options: options,
     );
 
-    final labelsData = await rootBundle.loadString(
+    final labelsData =
+        await rootBundle.loadString(
       'assets/ml/labels.txt',
     );
 
     _labels = labelsData
         .split('\n')
-        .where((label) => label.trim().isNotEmpty)
+        .where(
+          (label) =>
+              label.trim().isNotEmpty,
+        )
         .map(
           (label) => label.replaceAll(
             RegExp(r'^\d+\s*'),
@@ -35,27 +44,15 @@ class ClassifierService {
           ),
         )
         .toList();
-
-    print("Model Loaded");
-    print(_labels);
-
-    print(
-      _interpreter!.getInputTensor(0).shape,
-    );
-
-    print(
-      _interpreter!.getInputTensor(0).type,
-    );
   }
 
-  // IMAGE PICKER CLASSIFIER
-  Float32List _preprocessImage(
-    File imageFile,
-  ) {
+  // =========================
+  // PREPROCESS IMAGE
+  // =========================
 
-    final image = img.decodeImage(
-      imageFile.readAsBytesSync(),
-    )!;
+  Float32List _imageToByteList(
+    img.Image image,
+  ) {
 
     final resized = img.copyResize(
       image,
@@ -69,26 +66,52 @@ class ClassifierService {
 
     int index = 0;
 
-    for (int y = 0; y < inputSize; y++) {
-      for (int x = 0; x < inputSize; x++) {
+    for (int y = 0;
+        y < inputSize;
+        y++) {
 
-        final pixel = resized.getPixel(x, y);
+      for (int x = 0;
+          x < inputSize;
+          x++) {
 
-        input[index++] = pixel.r / 255.0;
-        input[index++] = pixel.g / 255.0;
-        input[index++] = pixel.b / 255.0;
+        final pixel =
+            resized.getPixel(x, y);
+
+        input[index++] =
+            pixel.r / 255.0;
+
+        input[index++] =
+            pixel.g / 255.0;
+
+        input[index++] =
+            pixel.b / 255.0;
       }
     }
 
     return input;
   }
 
-  Future<Map<String, double>> classify(
+  // =========================
+  // CLASSIFY IMAGE FILE
+  // =========================
+
+  Future<Map<String, double>>
+      classify(
     File imageFile,
   ) async {
 
-    final input = _preprocessImage(
-      imageFile,
+    final image = img.decodeImage(
+      imageFile.readAsBytesSync(),
+    );
+
+    if (image == null) {
+      throw Exception(
+        "Gambar tidak bisa dibaca",
+      );
+    }
+
+    final input = _imageToByteList(
+      image,
     ).reshape([
       1,
       inputSize,
@@ -104,12 +127,18 @@ class ClassifierService {
       ),
     );
 
-    _interpreter!.run(input, output);
+    _interpreter!.run(
+      input,
+      output,
+    );
 
     return _processOutput(output);
   }
 
-  // REALTIME CAMERA CLASSIFIER
+  // =========================
+  // REALTIME CAMERA
+  // =========================
+
   Future<Map<String, double>>
       classifyCameraImage(
     CameraImage cameraImage,
@@ -118,15 +147,44 @@ class ClassifierService {
     final bytes =
         cameraImage.planes[0].bytes;
 
-    final input = Float32List(
-      1 * inputSize * inputSize * 3,
+    final image = img.Image(
+      width: cameraImage.width,
+      height: cameraImage.height,
     );
 
-    for (int i = 0; i < input.length; i++) {
+    int pixelIndex = 0;
 
-      input[i] =
-          bytes[i % bytes.length] / 255.0;
+    for (int y = 0;
+        y < cameraImage.height;
+        y++) {
+
+      for (int x = 0;
+          x < cameraImage.width;
+          x++) {
+
+        final pixel =
+            bytes[pixelIndex];
+
+        image.setPixelRgb(
+          x,
+          y,
+          pixel,
+          pixel,
+          pixel,
+        );
+
+        pixelIndex++;
+      }
     }
+
+    final input = _imageToByteList(
+      image,
+    ).reshape([
+      1,
+      inputSize,
+      inputSize,
+      3,
+    ]);
 
     final output = List.generate(
       1,
@@ -137,40 +195,39 @@ class ClassifierService {
     );
 
     _interpreter!.run(
-      input.reshape([
-        1,
-        inputSize,
-        inputSize,
-        3,
-      ]),
+      input,
       output,
     );
 
     return _processOutput(output);
   }
 
-  // OUTPUT PROCESSING
+  // =========================
+  // OUTPUT
+  // =========================
+
   Map<String, double> _processOutput(
     List<List<double>> output,
   ) {
 
-    final results = <String, double>{};
+    final results =
+        <String, double>{};
 
-    for (int i = 0; i < _labels!.length; i++) {
+    for (int i = 0;
+        i < _labels!.length;
+        i++) {
 
       results[_labels![i]] =
           output[0][i];
     }
 
-    results.removeWhere(
-      (key, value) => value < 0,
-    );
-
     return Map.fromEntries(
       results.entries.toList()
         ..sort(
           (a, b) =>
-              b.value.compareTo(a.value),
+              b.value.compareTo(
+            a.value,
+          ),
         ),
     );
   }
